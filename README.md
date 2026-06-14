@@ -42,7 +42,45 @@ folder:
 
 - Python ≥ 3.11 (uses stdlib `tomllib`; developed on 3.14)
 - [`uv`](https://github.com/astral-sh/uv) for dependency management
-- `ocrmypdf` available on `PATH` (for the OCR fallback)
+- **Native binaries for OCR** — `tesseract` and `ghostscript` (see below)
+
+### Python dependencies
+
+`uv sync` installs the Python packages (`pymupdf`, `ocrmypdf`) from the
+committed `uv.lock`. `pymupdf` bundles its own libraries and needs nothing
+else.
+
+### System binaries (OCR fallback)
+
+The `ocrmypdf` Python package is a wrapper that shells out to native programs
+that are **not** installable via `uv`. They are only invoked on the fallback
+path — when a scanned PDF has *no embedded text layer*. If your scanner already
+produces searchable (OCR'd) PDFs, these act as a safety net; install them
+anyway so an image-only PDF doesn't land in `_Errored`.
+
+| Binary        | Role                         | Required |
+|---------------|------------------------------|----------|
+| `tesseract`   | OCR engine                   | Yes      |
+| `ghostscript` | PDF rasterizing/processing   | Yes      |
+| `jbig2enc`, `pngquant`, `unpaper` | Image optimization | Optional |
+
+```bash
+# macOS
+brew install tesseract ghostscript
+
+# Debian / Ubuntu
+apt-get install -y tesseract-ocr ghostscript
+
+# RHEL / Fedora
+dnf install -y tesseract ghostscript
+```
+
+Docker (Debian-based):
+
+```dockerfile
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    tesseract-ocr ghostscript && rm -rf /var/lib/apt/lists/*
+```
 
 ## Setup
 
