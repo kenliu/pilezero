@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+
+# pilezero local state (never committed)
+.pilezero/
+*.jsonl
+status.html
+
+# macOS
+.DS_Store

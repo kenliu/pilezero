@@ -1,0 +1,170 @@
+"""pilezero orchestrator — entrypoint for `python -m pilezero`.
+
+Acquires a non-blocking flock (exits silently if another instance holds it),
+batch-processes every pending file in the watched folder sequentially, and
+regenerates the status report after each file. One file's failure never halts
+the batch; the safe-move semantics ensure a file always exists somewhere.
+
+Pipeline per file (spec steps 3.1–3.8):
+  extract -> classify -> route -> render filename -> safe move -> log -> status
+"""
+
+from __future__ import annotations
+
+import fcntl
+import os
+import sys
+from pathlib import Path
+
+from .classify import classify
+from .config import load_config
+from .extract import extract_text
+from .log import log_record
+from .models import Config, FileRecord, PipelineError, Status
+from .move import safe_move
+from .route import match_rule, render_filename, resolve_folder
+from .status import generate_status_html
+
+# Subfolders that hold triage output — never treated as pending input.
+_SPECIAL_DIRS = {"_NeedsReview", "_Unmapped", "_Errored"}
+
+
+def _acquire_lock(lock_path: str):
+    """Non-blocking flock. Returns the open file handle, or None if held.
+
+    The handle must stay open for the lifetime of the process; the OS releases
+    the lock automatically on exit (including crashes).
+    """
+    Path(lock_path).parent.mkdir(parents=True, exist_ok=True)
+    fh = open(lock_path, "w")
+    try:
+        fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        fh.close()
+        return None
+    return fh
+
+
+def _list_pending(incoming_dir: str) -> list[Path]:
+    """Top-level PDFs in the watched folder, excluding the special subdirs."""
+    root = Path(incoming_dir)
+    if not root.is_dir():
+        return []
+    pending = []
+    for entry in sorted(root.iterdir()):
+        if entry.is_dir():
+            continue
+        if entry.name.startswith("."):
+            continue
+        if entry.suffix.lower() != ".pdf":
+            continue
+        pending.append(entry)
+    return pending
+
+
+def _route_to_special(record: FileRecord, config: Config, subdir: str, status: Status) -> None:
+    """Safe-move a file into one of the _* triage folders and set its status."""
+    dest_dir = str(Path(config.incoming_dir) / subdir)
+    dest = safe_move(record.original_path, dest_dir, record.original_filename)
+    record.new_filename = Path(dest).name
+    record.destination_path = dest
+    record.status = status
+
+
+def _regen_status(config: Config) -> None:
+    """Step 3.8 — cosmetic only; never allowed to affect processing."""
+    try:
+        generate_status_html(config.log_path, config.status_html)
+    except Exception as e:  # noqa: BLE001 - status is best-effort
+        print(f"pilezero: status.html regeneration failed: {e}", file=sys.stderr)
+
+
+def _process_file(path: Path, config: Config) -> FileRecord:
+    """Run one file through the full pipeline, returning its final record."""
+    record = FileRecord(
+        original_path=str(path),
+        original_filename=path.name,
+    )
+
+    try:
+        # 3.1 extraction
+        record.extracted_text = extract_text(str(path))
+
+        # 3.2 classification
+        classify(record, config.senders)
+        if record.status == Status.NEEDS_REVIEW:
+            _route_to_special(record, config, "_NeedsReview", Status.NEEDS_REVIEW)
+            return record
+
+        # 3.3 routing
+        rule = match_rule(record, config.rules)
+        if rule is None:
+            _route_to_special(record, config, "_Unmapped", Status.UNMAPPED)
+            return record
+
+        # 3.4 filename + 3.5/3.6 collision-safe move
+        filename = render_filename(rule.filename_template, record)
+        dest_dir = resolve_folder(rule.folder, config)
+        dest = safe_move(record.original_path, dest_dir, filename)
+        record.new_filename = Path(dest).name
+        record.destination_path = dest
+        record.status = Status.SUCCESS
+        return record
+
+    except PipelineError as e:
+        _handle_error(record, config, e)
+        return record
+    except Exception as e:  # noqa: BLE001 - any failure must route to _Errored
+        _handle_error(record, config, e)
+        return record
+
+
+def _handle_error(record: FileRecord, config: Config, exc: Exception) -> None:
+    """Step 3.9 — route a failed file to _Errored with safe-move semantics."""
+    record.status = Status.ERRORED
+    record.error_message = f"{type(exc).__name__}: {exc}"
+    try:
+        _route_to_special(record, config, "_Errored", Status.ERRORED)
+    except Exception as move_exc:  # noqa: BLE001
+        # The file could not be moved; it stays put (still backed up by Dropbox).
+        record.error_message += f" | _Errored move failed: {move_exc}"
+        print(
+            f"pilezero: failed to move {record.original_path} to _Errored: {move_exc}",
+            file=sys.stderr,
+        )
+
+
+def run(config_dir: str) -> int:
+    config = load_config(config_dir)
+
+    lock = _acquire_lock(config.lock_path)
+    if lock is None:
+        # Another instance is running — exit silently (idempotent triggers).
+        return 0
+
+    try:
+        pending = _list_pending(config.incoming_dir)
+        for path in pending:
+            record = _process_file(path, config)
+            log_record(config.log_path, record)  # 3.7 — never raises
+            _regen_status(config)  # 3.8 — best-effort
+    finally:
+        lock.close()  # lock released here (and by OS on any crash)
+
+    return 0
+
+
+def main() -> None:
+    # Config dir defaults to the project root (where the .toml files live), and
+    # can be overridden via PILEZERO_CONFIG_DIR or argv[1].
+    config_dir = (
+        sys.argv[1]
+        if len(sys.argv) > 1
+        else os.environ.get("PILEZERO_CONFIG_DIR")
+        or str(Path(__file__).resolve().parent.parent)
+    )
+    sys.exit(run(config_dir))
+
+
+if __name__ == "__main__":
+    main()

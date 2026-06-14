@@ -1,0 +1,32 @@
+# Routing rules — map classified documents to folders + filename formats.
+# Evaluated top-to-bottom; the FIRST matching rule wins.
+#
+# Match fields:
+#   sender        : canonical_name from senders.toml, or "*" = any sender
+#   document_type : optional; if omitted, matches any type for that sender
+# Output fields:
+#   folder            : path relative to dropbox_root. A folder name starting
+#                       with "_" (e.g. _Unmapped) resolves under incoming_dir.
+#   filename_template : placeholders {date} {sender} {document_type}
+#                       {account_number}. {date} is YYYY-MM-DD. If
+#                       {account_number} is absent it is omitted along with its
+#                       preceding separator character.
+#
+# If no rule matches at all (including no "*" catch-all), the file is routed to
+# _Unmapped regardless.
+
+[[rules]]
+sender            = "PSEG"
+folder            = "Bills/Electric"
+filename_template = "{date}_{sender}_{account_number}.pdf"
+
+[[rules]]
+sender            = "Lincoln Elementary"
+document_type     = "notice"
+folder            = "Kids/School"
+filename_template = "{date}_{sender}.pdf"
+
+[[rules]]
+sender            = "*"
+folder            = "_Unmapped"
+filename_template = "{date}_{sender}_{document_type}.pdf"

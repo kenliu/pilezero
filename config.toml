@@ -1,0 +1,8 @@
+# pilezero machine-specific paths. Paths are expanduser'd at load time.
+# Use placeholder/home-relative paths — do not hardcode absolute user paths.
+
+dropbox_root = "~/Dropbox"                          # destination folders join here
+incoming_dir = "~/Dropbox/Scans/_Incoming"          # watched ScanSnap output folder
+log_path     = "~/.pilezero/log.jsonl"              # local, NOT synced via Dropbox
+status_html  = "~/.pilezero/status.html"            # local, bookmarkable report
+lock_path    = "~/.pilezero/pilezero.lock"          # flock target

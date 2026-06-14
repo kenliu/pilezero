@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  net.kenliu.pilezero.plist — macOS LaunchAgent for the pilezero pipeline.
+
+  BEFORE INSTALLING, replace every occurrence of USERNAME with your actual
+  macOS short username (run `whoami` in Terminal to confirm).
+
+  Also verify the path to the `uv` binary. launchd runs with a minimal PATH
+  so the full absolute path is required. Common locations:
+    - Homebrew on Apple Silicon: /opt/homebrew/bin/uv
+    - Homebrew on Intel Mac:     /usr/local/bin/uv
+    - pipx / standalone install: /Users/USERNAME/.local/bin/uv
+  Run `which uv` in your shell to find the correct path, then update
+  ProgramArguments below accordingly.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+
+  <key>Label</key>
+  <string>net.kenliu.pilezero</string>
+
+  <!-- ============================================================
+       PROGRAM — replace /opt/homebrew/bin/uv with the actual path
+       from `which uv` and replace USERNAME with your short username.
+       ============================================================ -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/uv</string>
+    <string>run</string>
+    <string>python</string>
+    <string>-m</string>
+    <string>pilezero</string>
+  </array>
+
+  <!-- Working directory — replace USERNAME -->
+  <key>WorkingDirectory</key>
+  <string>/Users/USERNAME/code/pilezero</string>
+
+  <!-- ============================================================
+       TRIGGERS
+       WatchPaths: fire when the incoming scan folder changes.
+       StartInterval: backstop — also run every 30 minutes regardless.
+       Replace USERNAME in WatchPaths with your macOS short username.
+       The incoming folder should match incoming_dir in config.toml.
+       ============================================================ -->
+  <key>WatchPaths</key>
+  <array>
+    <!-- Replace USERNAME — this must match incoming_dir in config.toml -->
+    <string>/Users/USERNAME/Dropbox/Scans/_Incoming</string>
+  </array>
+
+  <key>StartInterval</key>
+  <integer>1800</integer><!-- 30 minutes -->
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <!-- ============================================================
+       LOGGING — replace USERNAME.
+       Ensure the directory exists first:
+         mkdir -p /Users/USERNAME/.pilezero
+       ============================================================ -->
+  <key>StandardOutPath</key>
+  <string>/Users/USERNAME/.pilezero/launchd.out.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>/Users/USERNAME/.pilezero/launchd.err.log</string>
+
+</dict>
+</plist>

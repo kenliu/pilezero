@@ -1,0 +1,21 @@
+# Sender registry — source of truth for sender identity used by classification.
+#
+# canonical_name : normalized name used in filenames, routing, and logs.
+# match_text     : list of strings; case-insensitive substring match against
+#                  extracted document text. Any hit identifies this sender.
+# document_type  : one of bill | statement | notice | correspondence | form | receipt
+#
+# A sender that emits multiple document types gets multiple entries sharing the
+# same canonical_name (one per type). If extracted text matches two DIFFERENT
+# canonical_names — or the same name with conflicting document_types — the file
+# is treated as ambiguous and routed to _NeedsReview.
+
+[[senders]]
+canonical_name = "PSEG"
+match_text     = ["PSEG", "Public Service Electric"]
+document_type  = "bill"
+
+[[senders]]
+canonical_name = "Lincoln Elementary"
+match_text     = ["Lincoln Elementary", "Lincoln Elementary School"]
+document_type  = "notice"
