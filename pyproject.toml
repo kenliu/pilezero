@@ -12,7 +12,6 @@ dependencies = [
 
 [project.scripts]
 pilezero = "pilezero.__main__:main"
-pilezero-inspect = "pilezero.inspect:main"
 
 [build-system]
 requires = ["uv_build>=0.9,<0.10"]

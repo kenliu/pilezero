@@ -225,6 +225,18 @@ def main(argv: list[str] | None = None) -> None:
         help="show what would be installed without making changes",
     )
 
+    inspect_p = sub.add_parser(
+        "inspect", help="show what the pipeline would do with a PDF (read-only)"
+    )
+    inspect_p.add_argument("pdf", nargs="+", help="one or more PDF files to inspect")
+    inspect_p.add_argument(
+        "-c", "--config-dir",
+        default=os.environ.get("PILEZERO_CONFIG_DIR") or str(Path.home() / ".pilezero"),
+        help="config dir (default: $PILEZERO_CONFIG_DIR or ~/.pilezero)",
+    )
+    inspect_p.add_argument("--json", action="store_true", help="emit machine-readable JSON")
+    inspect_p.add_argument("--text", action="store_true", help="print the full extracted text")
+
     args = parser.parse_args(argv)
 
     if args.command == "run":
@@ -232,6 +244,9 @@ def main(argv: list[str] | None = None) -> None:
     elif args.command == "install-launchd":
         from .install_launchd import install_agent
         sys.exit(install_agent(project_dir=args.project_dir, dry_run=args.dry_run))
+    elif args.command == "inspect":
+        from .inspect import run as inspect_run
+        sys.exit(inspect_run(args.pdf, args.config_dir, json_output=args.json, show_text=args.text))
 
 
 if __name__ == "__main__":

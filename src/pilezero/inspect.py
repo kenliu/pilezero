@@ -4,9 +4,9 @@ Point it at a scanned PDF to see (a) the metadata the pipeline would extract and
 (b) a ready-to-paste senders.toml / routing.toml suggestion when the document is
 not yet recognized. Read-only: it never moves or writes files.
 
-    uv run python -m pilezero.inspect path/to/scan.pdf
-    uv run pilezero-inspect path/to/scan.pdf --text   # also dump full text
-    uv run pilezero-inspect path/to/scan.pdf --json    # machine-readable
+    uv run python -m pilezero inspect path/to/scan.pdf
+    uv run python -m pilezero inspect path/to/scan.pdf --text   # also dump full text
+    uv run python -m pilezero inspect path/to/scan.pdf --json    # machine-readable
 
 senders.toml / routing.toml are loaded from the config dir (same resolution as
 the main pipeline) so matches reflect your real registry.
@@ -220,36 +220,34 @@ def _indent(block: str, prefix: str = "    ") -> str:
     return "\n".join(prefix + line if line else line for line in block.splitlines())
 
 
-def main(argv: list[str] | None = None) -> None:
-    import argparse
+def run(
+    pdfs: list[str],
+    config_dir: str,
+    json_output: bool = False,
+    show_text: bool = False,
+) -> int:
+    config = load_config(config_dir)
+    results = [inspect_pdf(p, config) for p in pdfs]
 
-    parser = argparse.ArgumentParser(
-        prog="pilezero-inspect",
-        description="Read a PDF and report what the pipeline would classify/route it as, "
-        "and suggest a rule when the sender is unrecognized (read-only; moves nothing).",
-    )
-    parser.add_argument("pdf", nargs="+", help="one or more PDF files to inspect")
-    parser.add_argument(
-        "-c", "--config-dir",
-        default=os.environ.get("PILEZERO_CONFIG_DIR") or os.getcwd(),
-        help="config dir (default: $PILEZERO_CONFIG_DIR or current directory)",
-    )
-    parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
-    parser.add_argument("--text", action="store_true", help="print the full extracted text")
-    args = parser.parse_args(argv)
-
-    config = load_config(args.config_dir)
-    results = [inspect_pdf(p, config) for p in args.pdf]
-
-    if args.json:
+    if json_output:
         print(json.dumps(results if len(results) > 1 else results[0], indent=2))
-        return
+        return 0
 
     for i, r in enumerate(results):
         if i:
             print()
-        _print_human(r, show_text=args.text)
+        _print_human(r, show_text=show_text)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+
+    _parser = argparse.ArgumentParser(prog="python -m pilezero.inspect")
+    _parser.add_argument("pdf", nargs="+")
+    _parser.add_argument("-c", "--config-dir",
+        default=os.environ.get("PILEZERO_CONFIG_DIR") or str(Path.home() / ".pilezero"))
+    _parser.add_argument("--json", action="store_true")
+    _parser.add_argument("--text", action="store_true")
+    _args = _parser.parse_args()
+    sys.exit(run(_args.pdf, _args.config_dir, json_output=_args.json, show_text=_args.text))
