@@ -21,7 +21,7 @@ from .config import load_config
 from .extract import extract_text
 from .log import log_record
 from .models import Config, FileRecord, PipelineError, Status
-from .move import safe_move
+from .move import _next_available_name, safe_move
 from .route import match_rule, render_filename, resolve_folder
 from .status import generate_status_html
 
@@ -62,10 +62,21 @@ def _list_pending(incoming_dir: str) -> list[Path]:
     return pending
 
 
-def _route_to_special(record: FileRecord, config: Config, subdir: str, status: Status) -> None:
+def _place(record: FileRecord, dest_dir: str, filename: str, dry_run: bool) -> str:
+    """Move (or, in dry-run, compute the would-be destination for) a file."""
+    if dry_run:
+        # Resolve the collision-free name without touching the filesystem.
+        name = _next_available_name(dest_dir, filename)
+        return str(Path(dest_dir) / name)
+    return safe_move(record.original_path, dest_dir, filename)
+
+
+def _route_to_special(
+    record: FileRecord, config: Config, subdir: str, status: Status, dry_run: bool = False
+) -> None:
     """Safe-move a file into one of the _* triage folders and set its status."""
     dest_dir = str(Path(config.incoming_dir) / subdir)
-    dest = safe_move(record.original_path, dest_dir, record.original_filename)
+    dest = _place(record, dest_dir, record.original_filename, dry_run)
     record.new_filename = Path(dest).name
     record.destination_path = dest
     record.status = status
@@ -79,7 +90,7 @@ def _regen_status(config: Config) -> None:
         print(f"pilezero: status.html regeneration failed: {e}", file=sys.stderr)
 
 
-def _process_file(path: Path, config: Config) -> FileRecord:
+def _process_file(path: Path, config: Config, dry_run: bool = False) -> FileRecord:
     """Run one file through the full pipeline, returning its final record."""
     record = FileRecord(
         original_path=str(path),
@@ -93,38 +104,38 @@ def _process_file(path: Path, config: Config) -> FileRecord:
         # 3.2 classification
         classify(record, config.senders)
         if record.status == Status.NEEDS_REVIEW:
-            _route_to_special(record, config, "_NeedsReview", Status.NEEDS_REVIEW)
+            _route_to_special(record, config, "_NeedsReview", Status.NEEDS_REVIEW, dry_run)
             return record
 
         # 3.3 routing
         rule = match_rule(record, config.rules)
         if rule is None:
-            _route_to_special(record, config, "_Unmapped", Status.UNMAPPED)
+            _route_to_special(record, config, "_Unmapped", Status.UNMAPPED, dry_run)
             return record
 
         # 3.4 filename + 3.5/3.6 collision-safe move
         filename = render_filename(rule.filename_template, record)
         dest_dir = resolve_folder(rule.folder, config)
-        dest = safe_move(record.original_path, dest_dir, filename)
+        dest = _place(record, dest_dir, filename, dry_run)
         record.new_filename = Path(dest).name
         record.destination_path = dest
         record.status = Status.SUCCESS
         return record
 
     except PipelineError as e:
-        _handle_error(record, config, e)
+        _handle_error(record, config, e, dry_run)
         return record
     except Exception as e:  # noqa: BLE001 - any failure must route to _Errored
-        _handle_error(record, config, e)
+        _handle_error(record, config, e, dry_run)
         return record
 
 
-def _handle_error(record: FileRecord, config: Config, exc: Exception) -> None:
+def _handle_error(record: FileRecord, config: Config, exc: Exception, dry_run: bool = False) -> None:
     """Step 3.9 — route a failed file to _Errored with safe-move semantics."""
     record.status = Status.ERRORED
     record.error_message = f"{type(exc).__name__}: {exc}"
     try:
-        _route_to_special(record, config, "_Errored", Status.ERRORED)
+        _route_to_special(record, config, "_Errored", Status.ERRORED, dry_run)
     except Exception as move_exc:  # noqa: BLE001
         # The file could not be moved; it stays put (still backed up by Dropbox).
         record.error_message += f" | _Errored move failed: {move_exc}"
@@ -134,7 +145,7 @@ def _handle_error(record: FileRecord, config: Config, exc: Exception) -> None:
         )
 
 
-def run(config_dir: str) -> int:
+def run(config_dir: str, dry_run: bool = False, verbose: bool = False) -> int:
     config = load_config(config_dir)
 
     lock = _acquire_lock(config.lock_path)
@@ -142,28 +153,67 @@ def run(config_dir: str) -> int:
         # Another instance is running — exit silently (idempotent triggers).
         return 0
 
+    counts = {s: 0 for s in Status}
     try:
         pending = _list_pending(config.incoming_dir)
+        if verbose or dry_run:
+            mode = "DRY RUN — no files will be moved" if dry_run else "processing"
+            print(f"pilezero: {mode}; {len(pending)} pending file(s) in {config.incoming_dir}")
         for path in pending:
-            record = _process_file(path, config)
-            log_record(config.log_path, record)  # 3.7 — never raises
-            _regen_status(config)  # 3.8 — best-effort
+            record = _process_file(path, config, dry_run=dry_run)
+            counts[record.status] = counts.get(record.status, 0) + 1
+            if verbose or dry_run:
+                _print_outcome(record)
+            if not dry_run:
+                log_record(config.log_path, record)  # 3.7 — never raises
+                _regen_status(config)  # 3.8 — best-effort
     finally:
         lock.close()  # lock released here (and by OS on any crash)
 
+    if verbose or dry_run:
+        summary = ", ".join(f"{s.value}={counts[s]}" for s in Status)
+        print(f"pilezero: done. {summary}")
     return 0
 
 
-def main() -> None:
-    # Config dir defaults to the project root (where the .toml files live), and
-    # can be overridden via PILEZERO_CONFIG_DIR or argv[1].
-    config_dir = (
-        sys.argv[1]
-        if len(sys.argv) > 1
-        else os.environ.get("PILEZERO_CONFIG_DIR")
-        or str(Path(__file__).resolve().parent.parent)
+def _print_outcome(record: FileRecord) -> None:
+    status = record.status.value if record.status else "?"
+    line = f"  [{status}] {record.original_filename}"
+    if record.destination_path:
+        line += f" -> {record.destination_path}"
+    if record.error_message:
+        line += f"  ({record.error_message})"
+    print(line)
+
+
+def main(argv: list[str] | None = None) -> None:
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        prog="pilezero",
+        description="Process all pending scanned PDFs in the watched folder once.",
     )
-    sys.exit(run(config_dir))
+    parser.add_argument(
+        "config_dir",
+        nargs="?",
+        default=os.environ.get("PILEZERO_CONFIG_DIR") or os.getcwd(),
+        help="directory holding config.toml/senders.toml/routing.toml "
+        "(default: $PILEZERO_CONFIG_DIR or the current directory)",
+    )
+    parser.add_argument(
+        "-n",
+        "--dry-run",
+        action="store_true",
+        help="show what would happen without moving files or writing logs",
+    )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="print a per-file outcome line and a summary",
+    )
+    args = parser.parse_args(argv)
+    sys.exit(run(args.config_dir, dry_run=args.dry_run, verbose=args.verbose))
 
 
 if __name__ == "__main__":

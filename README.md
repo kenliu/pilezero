@@ -111,15 +111,36 @@ Valid `document_type` values: `bill`, `statement`, `notice`, `correspondence`,
 
 ## Running
 
+`uv sync` installs two console commands. Run them from the directory that holds
+the config files (or pass a config dir / set `PILEZERO_CONFIG_DIR`):
+
 ```bash
-uv run python -m pilezero            # uses repo dir for config
-uv run python -m pilezero /path/to/config-dir
-# or set PILEZERO_CONFIG_DIR
+uv run pilezero              # process all pending files once
+uv run pilezero -v           # same, with a per-file outcome line + summary
+uv run pilezero -n           # dry run: show what WOULD happen, move nothing
+uv run pilezero /config/dir  # use config from another directory
 ```
 
 Concurrency is guarded by a non-blocking `flock`; a second overlapping run that
 can't get the lock exits silently. Idempotent — a run with nothing pending is a
 no-op.
+
+### Inspecting a PDF / building rules
+
+`pilezero-inspect` is a read-only tool: it reads one or more PDFs, prints the
+metadata the pipeline would extract (sender matches, date, account, where it
+would be filed), and — when the sender isn't recognized — suggests
+ready-to-paste `senders.toml` / `routing.toml` stubs. It never moves anything.
+
+```bash
+uv run pilezero-inspect scan.pdf          # human-readable report + rule suggestion
+uv run pilezero-inspect scan.pdf --text   # also dump the full extracted text
+uv run pilezero-inspect scan.pdf --json   # machine-readable output
+```
+
+Typical workflow for an unrecognized document: run `pilezero-inspect` on it,
+copy the suggested `[[senders]]` / `[[rules]]` blocks into your config, fill in
+the `TODO` fields, and re-run.
 
 ## Automatic triggering (macOS launchd)
 
@@ -145,8 +166,9 @@ uv run pytest -q
 ## Project layout
 
 ```
-pilezero/
-  __main__.py   # orchestrator: lock, batch loop, error routing (python -m pilezero)
+src/pilezero/
+  __main__.py   # orchestrator: lock, batch loop, error routing (the `pilezero` command)
+  inspect.py    # read-only PDF inspector + rule suggester (the `pilezero-inspect` command)
   config.py     # load + validate the three TOML configs (fail-fast)
   models.py     # shared data contract: FileRecord, enums, errors
   extract.py    # pymupdf + OCRmyPDF fallback

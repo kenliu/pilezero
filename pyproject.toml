@@ -7,6 +7,14 @@ dependencies = [
     "pymupdf>=1.27.2.3",
 ]
 
+[project.scripts]
+pilezero = "pilezero.__main__:main"
+pilezero-inspect = "pilezero.inspect:main"
+
+[build-system]
+requires = ["uv_build>=0.9,<0.10"]
+build-backend = "uv_build"
+
 [dependency-groups]
 dev = [
     "pytest>=9.1.0",
