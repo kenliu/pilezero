@@ -21,7 +21,7 @@ sequentially. One file's failure never halts the batch.
 extract → classify → route → render filename → safe-move → log → regenerate status.html
 ```
 
-1. **Extract** embedded PDF text; if none, run OCRmyPDF to add a text layer and re-extract.
+1. **Extract** embedded PDF text. A scan with no text layer is an extraction failure → `_Errored` (OCR is deferred — see below).
 2. **Classify** against `senders.toml` (case-insensitive substring match) and
    extract `document_date` + `account_number` (last 4 digits) via regex.
 3. **Route** via `routing.toml` rules (first match wins) to a destination folder
@@ -42,45 +42,22 @@ folder:
 
 - Python ≥ 3.11 (uses stdlib `tomllib`; developed on 3.14)
 - [`uv`](https://github.com/astral-sh/uv) for dependency management
-- **Native binaries for OCR** — `tesseract` and `ghostscript` (see below)
-
 ### Python dependencies
 
-`uv sync` installs the Python packages (`pymupdf`, `ocrmypdf`) from the
-committed `uv.lock`. `pymupdf` bundles its own libraries and needs nothing
-else.
+`uv sync` installs the Python packages from the committed `uv.lock`. The runtime
+dependency is just `pymupdf` (which bundles its own libraries) — the core install
+is intentionally lean.
 
-### System binaries (OCR fallback)
+### OCR (deferred)
 
-The `ocrmypdf` Python package is a wrapper that shells out to native programs
-that are **not** installable via `uv`. They are only invoked on the fallback
-path — when a scanned PDF has *no embedded text layer*. If your scanner already
-produces searchable (OCR'd) PDFs, these act as a safety net; install them
-anyway so an image-only PDF doesn't land in `_Errored`.
+There is **no OCR step right now**. Extraction reads the PDF's embedded text
+layer only; an image-only scan with no text layer is treated as an extraction
+failure and routed to `_Errored`. **Configure your scanner to produce searchable
+(OCR'd) PDFs** so documents arrive with a text layer.
 
-| Binary        | Role                         | Required |
-|---------------|------------------------------|----------|
-| `tesseract`   | OCR engine                   | Yes      |
-| `ghostscript` | PDF rasterizing/processing   | Yes      |
-| `jbig2enc`, `pngquant`, `unpaper` | Image optimization | Optional |
-
-```bash
-# macOS
-brew install tesseract ghostscript
-
-# Debian / Ubuntu
-apt-get install -y tesseract-ocr ghostscript
-
-# RHEL / Fedora
-dnf install -y tesseract ghostscript
-```
-
-Docker (Debian-based):
-
-```dockerfile
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    tesseract-ocr ghostscript && rm -rf /var/lib/apt/lists/*
-```
+An OCRmyPDF-based fallback was intentionally left out for now — it would shell
+out to the `ocrmypdf` CLI (a system binary, not a Python dep). It can be added
+back later if image-only scans become common.
 
 ## Setup
 
@@ -171,7 +148,7 @@ src/pilezero/
   inspect.py    # read-only PDF inspector + rule suggester (the `pilezero-inspect` command)
   config.py     # load + validate the three TOML configs (fail-fast)
   models.py     # shared data contract: FileRecord, enums, errors
-  extract.py    # pymupdf + OCRmyPDF fallback
+  extract.py    # embedded text via pymupdf (OCR deferred)
   classify.py   # sender match + date/account extraction
   route.py      # routing rules + filename rendering
   move.py       # safety-critical copy/verify/remove

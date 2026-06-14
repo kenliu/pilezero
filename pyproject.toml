@@ -3,9 +3,12 @@ name = "pilezero"
 version = "0.1.0"
 requires-python = ">=3.14"
 dependencies = [
-    "ocrmypdf>=17.6.0",
     "pymupdf>=1.27.2.3",
 ]
+# Note: ocrmypdf is NOT a Python dependency. The OCR fallback shells out to the
+# `ocrmypdf` CLI (see extract.py), so it is installed as a system binary instead
+# — pulling it in via pip/uv would drag in pikepdf, pydantic, lxml, cryptography,
+# pillow, etc. for no benefit. See README "System binaries".
 
 [project.scripts]
 pilezero = "pilezero.__main__:main"

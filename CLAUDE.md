@@ -29,7 +29,7 @@ depend on them.
 ```
 __main__.py  orchestrator: flock, batch loop, error routing, status regen
 config.py    load + validate the 3 TOML files; fail-fast on bad config
-extract.py   embedded text via pymupdf (import fitz); OCRmyPDF fallback
+extract.py   embedded text via pymupdf (import fitz); no-text scan -> ExtractionError (OCR deferred)
 classify.py  case-insensitive sender match; date/account regex extraction
 route.py     first-match-wins rules; filename template render; sanitization
 move.py      SAFETY-CRITICAL copy/verify/remove + collision suffixing
@@ -76,9 +76,9 @@ uv run python -m pilezero DIR    # config from DIR (or PILEZERO_CONFIG_DIR)
 
 ## Testing notes
 
-- Tests are offline/fast; the OCR fallback path in `extract.py` is **not**
-  exercised by the suite (it shells out to `ocrmypdf`). Verify that manually
-  against a real image-only scan.
+- Tests are offline/fast. There is no OCR step; a PDF with no embedded text
+  layer raises `ExtractionError` and is routed to `_Errored`. OCR (an OCRmyPDF
+  fallback) is deferred — don't re-add an `ocrmypdf` dependency without a reason.
 - E2E tests build temp configs + pymupdf-generated PDFs with embedded text and
   run `pilezero.__main__.run()`. Mirror that pattern for new integration tests.
 - If you find a real bug in a pipeline module, fix it directly and explain it —
