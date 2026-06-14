@@ -189,30 +189,49 @@ def _print_outcome(record: FileRecord) -> None:
 def main(argv: list[str] | None = None) -> None:
     import argparse
 
-    parser = argparse.ArgumentParser(
-        prog="pilezero",
-        description="Process all pending scanned PDFs in the watched folder once.",
-    )
-    parser.add_argument(
+    parser = argparse.ArgumentParser(prog="pilezero")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    run_p = sub.add_parser("run", help="process pending PDFs in the watched folder")
+    run_p.add_argument(
         "config_dir",
         nargs="?",
         default=os.environ.get("PILEZERO_CONFIG_DIR") or str(Path.home() / ".pilezero"),
         help="directory holding config.toml/senders.toml/routing.toml "
         "(default: $PILEZERO_CONFIG_DIR or ~/.pilezero)",
     )
-    parser.add_argument(
+    run_p.add_argument(
         "--dry-run",
         action="store_true",
         help="show what would happen without moving files or writing logs",
     )
-    parser.add_argument(
+    run_p.add_argument(
         "-q",
         "--quiet",
         action="store_true",
         help="suppress all output (useful when run from launchd)",
     )
+
+    install_p = sub.add_parser(
+        "install-launchd", help="install the macOS LaunchAgent (run once after setup)"
+    )
+    install_p.add_argument(
+        "--project-dir",
+        help="path to the pilezero project directory (default: auto-detected)",
+    )
+    install_p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="show what would be installed without making changes",
+    )
+
     args = parser.parse_args(argv)
-    sys.exit(run(args.config_dir, dry_run=args.dry_run, quiet=args.quiet))
+
+    if args.command == "run":
+        sys.exit(run(args.config_dir, dry_run=args.dry_run, quiet=args.quiet))
+    elif args.command == "install-launchd":
+        from .install_launchd import install_agent
+        sys.exit(install_agent(project_dir=args.project_dir, dry_run=args.dry_run))
 
 
 if __name__ == "__main__":

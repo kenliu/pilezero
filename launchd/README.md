@@ -6,51 +6,28 @@ periodic backstop.
 
 ## Prerequisites
 
-- `uv` installed and accessible (run `which uv` to find its path).
-- The pilezero project cloned at the path referenced in the plist.
-- The config directory created and populated: `mkdir -p ~/.pilezero`, then copy
-  `config.toml`, `senders.toml`, and `routing.toml` from the repo into it and
-  edit them for your machine.
+- `uv` installed and accessible (`which uv` to find its path).
+- Homebrew installed (`brew --prefix` must succeed).
+- `~/.pilezero/` populated with `config.toml`, `senders.toml`, and
+  `routing.toml` (copy from the repo and edit for your machine).
 
-## Setup steps
-
-### 1. Edit the plist
-
-Open `net.kenliu.pilezero.plist` and replace every occurrence of `USERNAME`
-with your macOS short username (`whoami` prints it).
-
-Also update the `uv` binary path in `ProgramArguments` if it differs from
-`/opt/homebrew/bin/uv`. Common alternatives:
-
-| Installation            | Path                              |
-|-------------------------|-----------------------------------|
-| Homebrew (Apple Silicon)| `/opt/homebrew/bin/uv`            |
-| Homebrew (Intel)        | `/usr/local/bin/uv`               |
-| pipx / standalone       | `/Users/USERNAME/.local/bin/uv`   |
-
-Verify the incoming folder path in `WatchPaths` matches `incoming_dir` in
-`~/.pilezero/config.toml`.
-
-### 2. Create the log directory
+## Install
 
 ```bash
-mkdir -p ~/.pilezero
+uv run python -m pilezero install-launchd
 ```
 
-### 3. Install the plist
+That's it. The command detects your `uv` path, Homebrew prefix, and
+`incoming_dir` from `~/.pilezero/config.toml`, writes the plist to
+`~/Library/LaunchAgents/`, and loads the agent via `launchctl`.
+
+To preview what it would do without making changes:
 
 ```bash
-cp net.kenliu.pilezero.plist ~/Library/LaunchAgents/
+uv run python -m pilezero install-launchd --dry-run
 ```
 
-### 4. Load the agent
-
-```bash
-launchctl load -w ~/Library/LaunchAgents/net.kenliu.pilezero.plist
-```
-
-The agent is now active. It will fire immediately (RunAtLoad), whenever the
-incoming folder changes (WatchPaths), and every 30 minutes (StartInterval).
+Re-run `install-launchd` any time you change the config or move the project.
 
 ## Checking status
 
@@ -74,8 +51,7 @@ tail -f ~/.pilezero/launchd.out.log
 tail -f ~/.pilezero/launchd.err.log
 ```
 
-The pipeline also writes structured JSON logs to `~/.pilezero/log.jsonl`
-(configured in `config.toml`).
+The pipeline also writes structured JSON logs to `~/.pilezero/log.jsonl`.
 
 ## Triggering a manual run
 
@@ -87,18 +63,11 @@ launchctl kickstart -k gui/$(id -u)/net.kenliu.pilezero
 
 ## Unloading the agent
 
-To stop and disable the agent:
-
 ```bash
 launchctl unload -w ~/Library/LaunchAgents/net.kenliu.pilezero.plist
 ```
 
-## After editing the plist
+## Reference plist
 
-Unload, then reload:
-
-```bash
-launchctl unload ~/Library/LaunchAgents/net.kenliu.pilezero.plist
-cp net.kenliu.pilezero.plist ~/Library/LaunchAgents/
-launchctl load -w ~/Library/LaunchAgents/net.kenliu.pilezero.plist
-```
+`net.kenliu.pilezero.plist` in this directory is a reference template showing
+the generated structure. It is not used directly by `install-launchd`.

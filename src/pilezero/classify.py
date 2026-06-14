@@ -36,6 +36,12 @@ _PAT_MONTH_D_Y = rf"\b({_MONTHS})\s+(\d{{1,2}}),?\s+(\d{{4}})\b"
 # YYYY-MM-DD  (ISO 8601, e.g. "2024-01-15")
 _PAT_ISO = r"\b(\d{4})-(\d{2})-(\d{2})\b"
 
+# "Bill date:", "Invoice date:", "Statement date:", "Issue date:", "Date:" — capture
+# the short span of text that follows, which is then parsed by the normal date patterns.
+_PAT_LABELED_DATE = (
+    r"(?:Bill|Invoice|Statement|Issue)\s+[Dd]ate\s*[:\s]\s*(.{5,40})"
+)
+
 # DD Mon YYYY  (e.g. "15 Jan 2024", "15 January 2024")
 _PAT_DMY = rf"\b(\d{{1,2}})\s+({_MONTHS})\s+(\d{{4}})\b"
 
@@ -52,6 +58,7 @@ _RE_MONTH_D_Y = re.compile(_PAT_MONTH_D_Y, re.IGNORECASE)
 _RE_ISO = re.compile(_PAT_ISO)
 _RE_DMY = re.compile(_PAT_DMY, re.IGNORECASE)
 _RE_ACCOUNT = re.compile(_PAT_ACCOUNT, re.IGNORECASE)
+_RE_LABELED_DATE = re.compile(_PAT_LABELED_DATE, re.IGNORECASE)
 
 # Mapping of abbreviated and full month names to month numbers
 _MONTH_MAP: dict[str, int] = {
@@ -82,13 +89,50 @@ def _try_date(year: int, month: int, day: int) -> Optional[str]:
         return None
 
 
+def _extract_date_from_span(span: str) -> Optional[str]:
+    """Run all non-labeled date patterns against a short text span."""
+    for m in _RE_ISO.finditer(span):
+        result = _try_date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+        if result:
+            return result
+    for m in _RE_MONTH_D_Y.finditer(span):
+        month_num = _MONTH_MAP.get(m.group(1).lower())
+        if month_num:
+            result = _try_date(int(m.group(3)), month_num, int(m.group(2)))
+            if result:
+                return result
+    for m in _RE_DMY.finditer(span):
+        month_num = _MONTH_MAP.get(m.group(2).lower())
+        if month_num:
+            result = _try_date(int(m.group(3)), month_num, int(m.group(1)))
+            if result:
+                return result
+    for m in _RE_MDY4.finditer(span):
+        result = _try_date(int(m.group(3)), int(m.group(1)), int(m.group(2)))
+        if result:
+            return result
+    for m in _RE_MDY2.finditer(span):
+        year = 2000 + int(m.group(3))
+        result = _try_date(year, int(m.group(1)), int(m.group(2)))
+        if result:
+            return result
+    return None
+
+
 def _extract_date(text: str) -> Optional[str]:
     """Return the first plausible date found in *text* as 'YYYY-MM-DD'.
 
-    Search order: ISO (unambiguous) → Month-name formats → numeric formats.
+    Search order: labeled date ("Bill date:", "Invoice date:", etc.) →
+    ISO (unambiguous) → Month-name formats → numeric formats.
     Within each pattern the first regex match is used; if the date values are
     invalid (e.g. month 13) the match is skipped and the next pattern tried.
     """
+    # Labeled date — highest priority; avoids picking up payment/due dates
+    for m in _RE_LABELED_DATE.finditer(text):
+        result = _extract_date_from_span(m.group(1))
+        if result:
+            return result
+
     # ISO 8601 — most unambiguous
     for m in _RE_ISO.finditer(text):
         result = _try_date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
