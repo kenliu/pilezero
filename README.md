@@ -117,7 +117,7 @@ the config files (or pass a config dir / set `PILEZERO_CONFIG_DIR`):
 ```bash
 uv run pilezero              # process all pending files once
 uv run pilezero -v           # same, with a per-file outcome line + summary
-uv run pilezero -n           # dry run: show what WOULD happen, move nothing
+uv run pilezero --dry-run    # show what WOULD happen, move nothing
 uv run pilezero /config/dir  # use config from another directory
 ```
 

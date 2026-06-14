@@ -201,7 +201,6 @@ def main(argv: list[str] | None = None) -> None:
         "(default: $PILEZERO_CONFIG_DIR or the current directory)",
     )
     parser.add_argument(
-        "-n",
         "--dry-run",
         action="store_true",
         help="show what would happen without moving files or writing logs",
