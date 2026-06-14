@@ -1,22 +1,24 @@
 """Text extraction for the pilezero pipeline.
 
-Extracts embedded text from a PDF using PyMuPDF. If a PDF has no embedded text
-layer it is treated as an extraction failure (raises ExtractionError) and the
-orchestrator routes it to _Errored for manual handling.
-
-OCR fallback (running OCRmyPDF to add a text layer for image-only scans) is
-deferred for now — see the "deferred" note in the README. Configure your
-scanner to produce searchable PDFs in the meantime.
+Always runs ocrmypdf --force-ocr to produce a clean text layer regardless of
+any embedded text left by scanner software, then extracts with PyMuPDF.
+Raises ExtractionError if ocrmypdf is unavailable or produces no text.
 """
 
 from __future__ import annotations
 
+import shutil
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import fitz  # pymupdf
 
 from .models import ExtractionError
+
+# Resolved once at import time; None means ocrmypdf is not on PATH.
+_OCRMYPDF = shutil.which("ocrmypdf")
 
 
 def _extract_with_fitz(pdf_path: str) -> str:
@@ -36,8 +38,42 @@ def _extract_with_fitz(pdf_path: str) -> str:
     return "".join(pages)
 
 
+def _ocr_text(pdf_path: str) -> str:
+    """Run ocrmypdf on *pdf_path* and return the resulting text layer.
+
+    Shells out to the ocrmypdf CLI so we don't import its heavy dependency
+    tree. --skip-text preserves any pages that already have a text layer.
+    """
+    if _OCRMYPDF is None:
+        raise ExtractionError(
+            f"{pdf_path!r} has no embedded text layer and ocrmypdf is not installed. "
+            "Install it (e.g. `brew install ocrmypdf`) or configure your scanner to "
+            "produce searchable PDFs."
+        )
+
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+        tmp_path = tmp.name
+
+    try:
+        result = subprocess.run(
+            [_OCRMYPDF, "--force-ocr", "--quiet", pdf_path, tmp_path],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            raise ExtractionError(
+                f"ocrmypdf failed on {pdf_path!r} (exit {result.returncode}): "
+                f"{result.stderr.strip()}"
+            )
+        text = _extract_with_fitz(tmp_path)
+    finally:
+        Path(tmp_path).unlink(missing_ok=True)
+
+    return text
+
+
 def extract_text(pdf_path: str) -> str:
-    """Extract embedded text from *pdf_path*.
+    """Extract text from *pdf_path*, falling back to OCR for image-only scans.
 
     Parameters
     ----------
@@ -47,27 +83,22 @@ def extract_text(pdf_path: str) -> str:
     Returns
     -------
     str
-        The full embedded text across all pages.
+        The full OCR'd text across all pages.
 
     Raises
     ------
     ExtractionError
-        If the PDF cannot be opened, or has no embedded text layer (an
-        image-only scan that would require OCR, which is not enabled).
+        If the PDF cannot be opened, ocrmypdf is unavailable, or OCR produces
+        no text.
     """
-    source = Path(pdf_path)
-    if not source.exists():
+    if not Path(pdf_path).exists():
         raise ExtractionError(f"PDF not found: {pdf_path!r}")
 
-    text = _extract_with_fitz(pdf_path)
+    text = _ocr_text(pdf_path)
     if text.strip():
         return text
 
-    raise ExtractionError(
-        f"{pdf_path!r} has no embedded text layer (image-only scan). OCR is not "
-        "enabled; configure the scanner to produce searchable PDFs, or OCR the "
-        "file manually."
-    )
+    raise ExtractionError(f"{pdf_path!r}: OCR produced no text.")
 
 
 if __name__ == "__main__":
