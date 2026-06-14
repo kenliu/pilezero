@@ -8,7 +8,9 @@ periodic backstop.
 
 - `uv` installed and accessible (run `which uv` to find its path).
 - The pilezero project cloned at the path referenced in the plist.
-- The log directory created: `mkdir -p ~/.pilezero`
+- The config directory created and populated: `mkdir -p ~/.pilezero`, then copy
+  `config.toml`, `senders.toml`, and `routing.toml` from the repo into it and
+  edit them for your machine.
 
 ## Setup steps
 
@@ -27,7 +29,7 @@ Also update the `uv` binary path in `ProgramArguments` if it differs from
 | pipx / standalone       | `/Users/USERNAME/.local/bin/uv`   |
 
 Verify the incoming folder path in `WatchPaths` matches `incoming_dir` in
-`config.toml` (default: `~/Dropbox/Scans/_Incoming`).
+`~/.pilezero/config.toml`.
 
 ### 2. Create the log directory
 

@@ -145,7 +145,7 @@ def _handle_error(record: FileRecord, config: Config, exc: Exception, dry_run: b
         )
 
 
-def run(config_dir: str, dry_run: bool = False, verbose: bool = False) -> int:
+def run(config_dir: str, dry_run: bool = False, quiet: bool = False) -> int:
     config = load_config(config_dir)
 
     lock = _acquire_lock(config.lock_path)
@@ -156,13 +156,13 @@ def run(config_dir: str, dry_run: bool = False, verbose: bool = False) -> int:
     counts = {s: 0 for s in Status}
     try:
         pending = _list_pending(config.incoming_dir)
-        if verbose or dry_run:
+        if not quiet:
             mode = "DRY RUN — no files will be moved" if dry_run else "processing"
             print(f"pilezero: {mode}; {len(pending)} pending file(s) in {config.incoming_dir}")
         for path in pending:
             record = _process_file(path, config, dry_run=dry_run)
             counts[record.status] = counts.get(record.status, 0) + 1
-            if verbose or dry_run:
+            if not quiet:
                 _print_outcome(record)
             if not dry_run:
                 log_record(config.log_path, record)  # 3.7 — never raises
@@ -170,7 +170,7 @@ def run(config_dir: str, dry_run: bool = False, verbose: bool = False) -> int:
     finally:
         lock.close()  # lock released here (and by OS on any crash)
 
-    if verbose or dry_run:
+    if not quiet:
         summary = ", ".join(f"{s.value}={counts[s]}" for s in Status)
         print(f"pilezero: done. {summary}")
     return 0
@@ -196,9 +196,9 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "config_dir",
         nargs="?",
-        default=os.environ.get("PILEZERO_CONFIG_DIR") or os.getcwd(),
+        default=os.environ.get("PILEZERO_CONFIG_DIR") or str(Path.home() / ".pilezero"),
         help="directory holding config.toml/senders.toml/routing.toml "
-        "(default: $PILEZERO_CONFIG_DIR or the current directory)",
+        "(default: $PILEZERO_CONFIG_DIR or ~/.pilezero)",
     )
     parser.add_argument(
         "--dry-run",
@@ -206,13 +206,13 @@ def main(argv: list[str] | None = None) -> None:
         help="show what would happen without moving files or writing logs",
     )
     parser.add_argument(
-        "-v",
-        "--verbose",
+        "-q",
+        "--quiet",
         action="store_true",
-        help="print a per-file outcome line and a summary",
+        help="suppress all output (useful when run from launchd)",
     )
     args = parser.parse_args(argv)
-    sys.exit(run(args.config_dir, dry_run=args.dry_run, verbose=args.verbose))
+    sys.exit(run(args.config_dir, dry_run=args.dry_run, quiet=args.quiet))
 
 
 if __name__ == "__main__":
