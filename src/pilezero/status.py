@@ -237,7 +237,12 @@ def generate_status_html(log_path: str, output_path: str) -> None:
             parts.append(f'<tr class="{html.escape(row_class)}">\n')
             parts.append(f'  <td>{html.escape(ts_display)}</td>\n')
             parts.append(f'  <td>{html.escape(original_filename)}</td>\n')
-            parts.append(f'  <td>{html.escape(new_filename)}</td>\n')
+            if destination_path and new_filename:
+                url = _file_url(destination_path)
+                new_filename_html = f'<a href="{html.escape(url)}">{html.escape(new_filename)}</a>'
+            else:
+                new_filename_html = html.escape(new_filename)
+            parts.append(f'  <td>{new_filename_html}</td>\n')
             parts.append(f'  <td>{html.escape(dest_folder)}</td>\n')
             parts.append(f'  <td>{badge}</td>\n')
             parts.append(f'  <td>{reason_html}</td>\n')

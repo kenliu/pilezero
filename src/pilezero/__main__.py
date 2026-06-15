@@ -49,24 +49,23 @@ def _acquire_lock(lock_path: str):
 _STABLE_AGE = 5.0  # seconds a file must be unmodified before processing
 
 
-def _list_pending(incoming_dir: str) -> list[Path]:
-    """Top-level PDFs in the watched folder that are stable (mtime >= 5s ago)."""
+def _list_pdfs(incoming_dir: str) -> list[Path]:
+    """All top-level PDFs in the watched folder, regardless of age."""
     root = Path(incoming_dir)
     if not root.is_dir():
         return []
+    return [
+        entry for entry in sorted(root.iterdir())
+        if not entry.is_dir()
+        and not entry.name.startswith(".")
+        and entry.suffix.lower() == ".pdf"
+    ]
+
+
+def _list_pending(incoming_dir: str) -> list[Path]:
+    """Top-level PDFs in the watched folder that are stable (mtime >= 5s ago)."""
     now = time.time()
-    pending = []
-    for entry in sorted(root.iterdir()):
-        if entry.is_dir():
-            continue
-        if entry.name.startswith("."):
-            continue
-        if entry.suffix.lower() != ".pdf":
-            continue
-        if now - entry.stat().st_mtime < _STABLE_AGE:
-            continue
-        pending.append(entry)
-    return pending
+    return [p for p in _list_pdfs(incoming_dir) if now - p.stat().st_mtime >= _STABLE_AGE]
 
 
 def _place(record: FileRecord, dest_dir: str, filename: str, dry_run: bool) -> str:
@@ -165,22 +164,26 @@ def run(config_dir: str, dry_run: bool = False, quiet: bool = False) -> int:
         if not quiet:
             mode = "DRY RUN — no files will be moved" if dry_run else "processing"
             print(f"pilezero: {mode} {config.incoming_dir}")
-        # Loop until the folder is empty so files that arrive mid-batch are
-        # caught in the same run rather than waiting for the next launchd trigger.
-        # dry-run skips the loop (files are never moved, so it would run forever).
+        # Loop until the folder is truly empty. If files exist but aren't stable
+        # yet (scanner still writing), sleep 1s and retry rather than exiting —
+        # otherwise the WatchPaths trigger fires before mtime is old enough and
+        # the agent exits without processing anything.
+        # dry-run processes one snapshot only (files never move, loop never ends).
         while True:
             pending = _list_pending(config.incoming_dir)
-            if not pending:
-                break
-            for path in pending:
-                record = _process_file(path, config, dry_run=dry_run)
-                counts[record.status] = counts.get(record.status, 0) + 1
-                if not quiet:
-                    _print_outcome(record)
-                if not dry_run:
-                    log_record(config.log_path, record)  # 3.7 — never raises
-                    _regen_status(config)  # 3.8 — best-effort
-            if dry_run:
+            if pending:
+                for path in pending:
+                    record = _process_file(path, config, dry_run=dry_run)
+                    counts[record.status] = counts.get(record.status, 0) + 1
+                    if not quiet:
+                        _print_outcome(record)
+                    if not dry_run:
+                        log_record(config.log_path, record)  # 3.7 — never raises
+                        _regen_status(config)  # 3.8 — best-effort
+            elif _list_pdfs(config.incoming_dir) and not dry_run:
+                time.sleep(1)  # files present but not stable yet; wait and retry
+                continue
+            if not pending or dry_run:
                 break
     finally:
         lock.close()  # lock released here (and by OS on any crash)
