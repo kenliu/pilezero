@@ -7,6 +7,7 @@ text extraction succeeds without OCR — keeping tests offline and fast.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import fitz  # pymupdf
@@ -26,6 +27,9 @@ def _make_pdf(path: Path, text: str) -> Path:
     page.insert_text((72, 100), text, fontsize=11)
     doc.save(str(path))
     doc.close()
+    # Back-date so the stability check (mtime >= 5s) always passes in tests.
+    old = path.stat().st_mtime - 10
+    os.utime(path, (old, old))
     return path
 
 

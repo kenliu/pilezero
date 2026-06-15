@@ -14,6 +14,7 @@ from __future__ import annotations
 import fcntl
 import os
 import sys
+import time
 from pathlib import Path
 
 from .classify import classify
@@ -45,11 +46,15 @@ def _acquire_lock(lock_path: str):
     return fh
 
 
+_STABLE_AGE = 5.0  # seconds a file must be unmodified before processing
+
+
 def _list_pending(incoming_dir: str) -> list[Path]:
-    """Top-level PDFs in the watched folder, excluding the special subdirs."""
+    """Top-level PDFs in the watched folder that are stable (mtime >= 5s ago)."""
     root = Path(incoming_dir)
     if not root.is_dir():
         return []
+    now = time.time()
     pending = []
     for entry in sorted(root.iterdir()):
         if entry.is_dir():
@@ -57,6 +62,8 @@ def _list_pending(incoming_dir: str) -> list[Path]:
         if entry.name.startswith("."):
             continue
         if entry.suffix.lower() != ".pdf":
+            continue
+        if now - entry.stat().st_mtime < _STABLE_AGE:
             continue
         pending.append(entry)
     return pending
@@ -155,18 +162,26 @@ def run(config_dir: str, dry_run: bool = False, quiet: bool = False) -> int:
 
     counts = {s: 0 for s in Status}
     try:
-        pending = _list_pending(config.incoming_dir)
         if not quiet:
             mode = "DRY RUN — no files will be moved" if dry_run else "processing"
-            print(f"pilezero: {mode}; {len(pending)} pending file(s) in {config.incoming_dir}")
-        for path in pending:
-            record = _process_file(path, config, dry_run=dry_run)
-            counts[record.status] = counts.get(record.status, 0) + 1
-            if not quiet:
-                _print_outcome(record)
-            if not dry_run:
-                log_record(config.log_path, record)  # 3.7 — never raises
-                _regen_status(config)  # 3.8 — best-effort
+            print(f"pilezero: {mode} {config.incoming_dir}")
+        # Loop until the folder is empty so files that arrive mid-batch are
+        # caught in the same run rather than waiting for the next launchd trigger.
+        # dry-run skips the loop (files are never moved, so it would run forever).
+        while True:
+            pending = _list_pending(config.incoming_dir)
+            if not pending:
+                break
+            for path in pending:
+                record = _process_file(path, config, dry_run=dry_run)
+                counts[record.status] = counts.get(record.status, 0) + 1
+                if not quiet:
+                    _print_outcome(record)
+                if not dry_run:
+                    log_record(config.log_path, record)  # 3.7 — never raises
+                    _regen_status(config)  # 3.8 — best-effort
+            if dry_run:
+                break
     finally:
         lock.close()  # lock released here (and by OS on any crash)
 
