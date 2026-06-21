@@ -23,6 +23,7 @@ from .extract import extract_text
 from .log import log_record
 from .models import Config, FileRecord, PipelineError, Status
 from .move import _next_available_name, safe_move
+from .notify import notify
 from .route import match_rule, render_filename, resolve_folder
 from .status import generate_status_html
 
@@ -178,6 +179,7 @@ def run(config_dir: str, dry_run: bool = False, quiet: bool = False) -> int:
                     if not quiet:
                         _print_outcome(record)
                     if not dry_run:
+                        notify(record)
                         log_record(config.log_path, record)  # 3.7 — never raises
                         _regen_status(config)  # 3.8 — best-effort
             elif _list_pdfs(config.incoming_dir) and not dry_run:
@@ -202,6 +204,13 @@ def _print_outcome(record: FileRecord) -> None:
     if record.error_message:
         line += f"  ({record.error_message})"
     print(line)
+    if record.status == Status.NEEDS_REVIEW:
+        print(f"    sender:  {record.sender or 'none'}")
+        print(f"    date:    {record.document_date or 'not found'}")
+        print(f"    account: {record.account_number or 'not found'}")
+        preview = " ".join((record.extracted_text or "")[:300].split())
+        if preview:
+            print(f"    text:    {preview}")
 
 
 def main(argv: list[str] | None = None) -> None:

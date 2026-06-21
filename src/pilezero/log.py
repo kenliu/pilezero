@@ -34,6 +34,7 @@ def log_record(log_path: str, record: FileRecord) -> None:
             "destination_path": record.destination_path,
             "document_type": record.document_type,
             "sender": record.sender,
+            "document_date": record.document_date,
             "account_number": record.account_number,
             "status": record.status.value if isinstance(record.status, Status) else record.status,
         }

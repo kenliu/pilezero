@@ -227,6 +227,19 @@ def generate_status_html(log_path: str, output_path: str) -> None:
                         reason_html += f'<br><span class="reason">{escaped_msg}</span>'
                     else:
                         reason_html = f'<span class="reason">{escaped_msg}</span>'
+                if status == "needs_review":
+                    details: list[str] = []
+                    if entry.get("sender"):
+                        details.append(f'sender: {html.escape(entry["sender"])}')
+                    if entry.get("document_date"):
+                        details.append(f'date: {html.escape(entry["document_date"])}')
+                    if entry.get("account_number"):
+                        details.append(f'account: {html.escape(entry["account_number"])}')
+                    if details:
+                        reason_html += '<br><span class="reason">' + " &bull; ".join(details) + "</span>"
+                    preview = (entry.get("extracted_text_preview") or "").strip()
+                    if preview:
+                        reason_html += f'<br><span class="reason">{html.escape(preview[:200])}</span>'
 
             badge = (
                 f'<span class="badge {html.escape(css_class)}">{html.escape(label)}</span>'

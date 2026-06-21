@@ -65,10 +65,7 @@ class TestSenderMatch:
         rec = _record("Random text with no known sender but a date 2024-01-01")
         result = classify(rec, senders)
         assert result.status == Status.NEEDS_REVIEW
-        assert "missing required fields" in (result.error_message or "")
-        # sender and document_type should be in the missing list
-        assert "sender" in result.error_message
-        assert "document_type" in result.error_message
+        assert "no sender recognized" in (result.error_message or "")
 
 
 # ---------------------------------------------------------------------------
@@ -131,7 +128,7 @@ class TestRequiredFields:
         rec = _record("PSEG Public Service Electric")  # no date
         result = classify(rec, senders)
         assert result.status == Status.NEEDS_REVIEW
-        assert "document_date" in result.error_message
+        assert "date not found" in result.error_message
 
     def test_all_fields_present_no_review(self):
         senders = _make_senders()

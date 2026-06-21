@@ -250,18 +250,14 @@ def classify(record: FileRecord, senders: list[SenderEntry]) -> FileRecord:
     # Step 3 — Required-field check (only if no ambiguity already flagged)
     # ------------------------------------------------------------------
     if record.status is None:
-        missing = [
-            field
-            for field, value in (
-                ("sender", record.sender),
-                ("document_type", record.document_type),
-                ("document_date", record.document_date),
-            )
-            if not value
-        ]
-        if missing:
+        reasons: list[str] = []
+        if not record.sender:
+            reasons.append("no sender recognized")
+        if not record.document_date:
+            reasons.append("date not found")
+        if reasons:
             record.status = Status.NEEDS_REVIEW
-            record.error_message = "missing required fields: " + ", ".join(missing)
+            record.error_message = "; ".join(reasons)
 
     return record
 
