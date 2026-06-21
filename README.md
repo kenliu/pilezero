@@ -1,63 +1,60 @@
 # pilezero
 
-A local, rules-based automation pipeline that watches a ScanSnap output folder
-(inside Dropbox), classifies and renames scanned PDFs, and files them into an
-organized Dropbox folder structure. Phase 1 has **no external API / LLM
-dependencies** — classification is rules-based via a sender registry.
+You go paperless by scanning physical mail and shredding the paper. But your
+scanner just dumps everything into one folder as generic files — you still have
+to manually rename each scan, figure out where it belongs, and move it there.
+That chore piles up and doesn't get done.
 
-## Critical safety rule
+pilezero fixes this. It watches your ScanSnap output folder and automatically
+files each PDF the moment it appears: it recognizes the sender, extracts the
+date and account number, renames the file consistently, and moves it to the
+right place in Dropbox. Scanned mail is filed instantly, with no manual work.
 
-**No file is ever silently deleted or overwritten.** The physical paper is
-destroyed after scanning, so each scanned PDF is the sole copy. Every move is
-copy → verify (size + SHA-256) → remove-original, and filename collisions are
-resolved by appending a numeric suffix — never by overwriting.
+Classification is rules-based — you define senders and routing rules in TOML
+config files. No LLM or external API required.
 
-## How it works
+## Safety guarantee
 
-Each invocation processes **all** currently pending PDFs in the watched folder,
+The physical paper is destroyed after scanning, so each PDF is the sole copy of
+that document. pilezero will **never silently delete or overwrite a file.** Every
+move is copy → verify (size + SHA-256) → remove-original. Filename collisions
+are resolved by appending a numeric suffix, never by overwriting.
+
+## What it does
+
+When triggered, pilezero processes all pending PDFs in the watched folder
 sequentially. One file's failure never halts the batch.
 
-```
-extract → classify → route → render filename → safe-move → log → regenerate status.html
-```
+For each file:
 
-1. **Extract** embedded PDF text. A scan with no text layer is an extraction failure → `_Errored` (OCR is deferred — see below).
-2. **Classify** against `senders.toml` (case-insensitive substring match) and
-   extract `document_date` + `account_number` (last 4 digits) via regex.
-3. **Route** via `routing.toml` rules (first match wins) to a destination folder
-   and filename template.
-4. **Safe-move** into place with collision-safe naming.
-5. **Log** the outcome as JSONL and regenerate the `status.html` report.
+1. **Extract** embedded text from the PDF.
+2. **Classify** against your sender registry (`senders.toml`) and extract the
+   document date and last-4 account number via regex.
+3. **Route** via your rules (`routing.toml`) to a destination folder and
+   filename template (e.g. `Bills/Electric/2026-01-15 Pacific Gas Bill.pdf`).
+4. **Move** safely into place.
+5. **Log** the outcome and regenerate the `status.html` report.
 
-Files that can't be resolved are routed to triage subfolders of the watched
-folder:
+Files that can't be resolved are moved to triage subfolders:
 
-| Folder         | Meaning                                                       |
-|----------------|---------------------------------------------------------------|
-| `_NeedsReview` | Sender unrecognized, ambiguous, or a required field missing   |
-| `_Unmapped`    | Sender recognized but no routing rule matched                 |
-| `_Errored`     | Any processing failure (extraction, OCR, move, etc.)          |
+| Folder         | Meaning                                                     |
+|----------------|-------------------------------------------------------------|
+| `_NeedsReview` | Sender unrecognized, ambiguous, or a required field missing |
+| `_Unmapped`    | Sender recognized but no routing rule matched               |
+| `_Errored`     | Any processing failure (extraction, move, etc.)             |
 
 ## Requirements
 
 - Python ≥ 3.11 (uses stdlib `tomllib`; developed on 3.14)
 - [`uv`](https://github.com/astral-sh/uv) for dependency management
-### Python dependencies
 
-`uv sync` installs the Python packages from the committed `uv.lock`. The runtime
-dependency is just `pymupdf` (which bundles its own libraries) — the core install
-is intentionally lean.
+The only runtime Python dependency is `pymupdf` (bundles its own libraries).
 
-### OCR (deferred)
+### OCR
 
-There is **no OCR step right now**. Extraction reads the PDF's embedded text
-layer only; an image-only scan with no text layer is treated as an extraction
-failure and routed to `_Errored`. **Configure your scanner to produce searchable
-(OCR'd) PDFs** so documents arrive with a text layer.
-
-An OCRmyPDF-based fallback was intentionally left out for now — it would shell
-out to the `ocrmypdf` CLI (a system binary, not a Python dep). It can be added
-back later if image-only scans become common.
+There is no OCR step. Extraction reads the PDF's embedded text layer only — a
+scan with no text layer is routed to `_Errored`. **Configure your scanner to
+produce searchable (OCR'd) PDFs** so documents arrive with a text layer.
 
 ## Setup
 
@@ -70,26 +67,23 @@ expanded at load time.
 
 ## Configuration
 
-| File           | Purpose                                                          |
-|----------------|------------------------------------------------------------------|
-| `config.toml`  | Machine paths: `dropbox_root`, `incoming_dir`, log/status/lock   |
-| `senders.toml` | Sender registry: `canonical_name`, `match_text[]`, `document_type` |
-| `routing.toml` | Routing rules: `sender`/`document_type` → `folder` + `filename_template` |
+| File             | Purpose                                                            |
+|------------------|--------------------------------------------------------------------|
+| `config.toml`    | Paths: `dropbox_root`, `incoming_dir`, log/status/lock locations   |
+| `senders.toml`   | Sender registry: `canonical_name`, `match_text[]`, `document_type` |
+| `routing.toml`   | Routing rules: sender/document_type → `folder` + `filename_template` |
 
 **Filename template variables:** `{date}` (YYYY-MM-DD), `{sender}`,
 `{document_type}`, `{account_number}`. An absent `{account_number}` is dropped
 along with its preceding separator.
 
-**Folder resolution:** a `folder` starting with `_` (e.g. `_Unmapped`) resolves
-under `incoming_dir`; any other folder resolves under `dropbox_root`.
+**Folder resolution:** a `folder` starting with `_` resolves under
+`incoming_dir`; any other folder resolves under `dropbox_root`.
 
 Valid `document_type` values: `bill`, `statement`, `notice`, `correspondence`,
 `form`, `receipt`.
 
 ## Running
-
-`uv sync` installs two console commands. Run them from the directory that holds
-the config files (or pass a config dir / set `PILEZERO_CONFIG_DIR`):
 
 ```bash
 uv run pilezero              # process all pending files once
@@ -98,26 +92,25 @@ uv run pilezero --dry-run    # show what WOULD happen, move nothing
 uv run pilezero /config/dir  # use config from another directory
 ```
 
-Concurrency is guarded by a non-blocking `flock`; a second overlapping run that
-can't get the lock exits silently. Idempotent — a run with nothing pending is a
-no-op.
+Concurrency is guarded by a non-blocking `flock`; a second overlapping run
+exits silently. A run with nothing pending is a no-op.
 
 ### Inspecting a PDF / building rules
 
-`pilezero-inspect` is a read-only tool: it reads one or more PDFs, prints the
-metadata the pipeline would extract (sender matches, date, account, where it
-would be filed), and — when the sender isn't recognized — suggests
-ready-to-paste `senders.toml` / `routing.toml` stubs. It never moves anything.
+`pilezero inspect` is a read-only tool: it reads one or more PDFs, prints the
+metadata the pipeline would extract (sender matches, date, account, destination
+path), and — when the sender isn't recognized — suggests ready-to-paste
+`senders.toml` / `routing.toml` stubs. It never moves anything.
 
 ```bash
-uv run pilezero-inspect scan.pdf          # human-readable report + rule suggestion
-uv run pilezero-inspect scan.pdf --text   # also dump the full extracted text
-uv run pilezero-inspect scan.pdf --json   # machine-readable output
+uv run pilezero inspect scan.pdf          # report + rule suggestion
+uv run pilezero inspect scan.pdf --text   # also dump the full extracted text
+uv run pilezero inspect scan.pdf --json   # machine-readable output
 ```
 
-Typical workflow for an unrecognized document: run `pilezero-inspect` on it,
-copy the suggested `[[senders]]` / `[[rules]]` blocks into your config, fill in
-the `TODO` fields, and re-run.
+Typical workflow for an unrecognized document: run `pilezero inspect`, copy the
+suggested `[[senders]]` / `[[rules]]` blocks into your config, fill in the
+`TODO` fields, and re-run.
 
 ## Automatic triggering (macOS launchd)
 
@@ -127,28 +120,25 @@ for install steps — you must replace the placeholder paths/username first.
 
 ## Observability
 
-- **`status.html`** — regenerated after every file; shows last-6-months summary
-  counts, a color-coded table, and `file://` links to triage PDFs. Bookmark it.
-- **`log.jsonl`** — append-only JSONL outcome log, stored locally (not synced
-  via Dropbox).
+- **`status.html`** — regenerated after every file; shows a last-6-months
+  summary and a color-coded table with `file://` links to triage PDFs. Bookmark it.
+- **`log.jsonl`** — append-only JSONL outcome log, stored locally (not synced via Dropbox).
 
 ## Tests
 
 ```bash
-uv run pytest -q
+uv run pytest -q   # 66 tests covering each module + end-to-end runs
 ```
-
-66 tests covering each module plus end-to-end runs through the orchestrator.
 
 ## Project layout
 
 ```
 src/pilezero/
-  __main__.py   # orchestrator: lock, batch loop, error routing (the `pilezero` command)
-  inspect.py    # read-only PDF inspector + rule suggester (the `pilezero-inspect` command)
+  __main__.py   # orchestrator: lock, batch loop, error routing
+  inspect.py    # read-only PDF inspector + rule suggester
   config.py     # load + validate the three TOML configs (fail-fast)
   models.py     # shared data contract: FileRecord, enums, errors
-  extract.py    # embedded text via pymupdf (OCR deferred)
+  extract.py    # embedded text via pymupdf
   classify.py   # sender match + date/account extraction
   route.py      # routing rules + filename rendering
   move.py       # safety-critical copy/verify/remove
@@ -157,11 +147,10 @@ src/pilezero/
 config.toml · senders.toml · routing.toml   # configuration
 launchd/        # LaunchAgent plist + install guide
 tests/          # pytest suite
-TASKS.md        # implementation task breakdown
 ```
 
-## Phase 1 scope
+## Roadmap
 
 Deferred to later phases: LLM-based fallback classification, a family-member
 registry for person-aware routing, retention/cleanup, duplicate-scan detection,
-and confidence scoring. See the design spec for details.
+and confidence scoring.
