@@ -1,7 +1,7 @@
 # pilezero
 
 You go paperless by scanning physical mail and shredding the paper. But your
-scanner just dumps everything into one folder as generic files — you still have
+scanner just dumps everything into one folder as generic files, and you still have
 to manually rename each scan, figure out where it belongs, and move it there.
 That chore piles up and doesn't get done.
 
@@ -10,7 +10,7 @@ files each PDF the moment it appears: it recognizes the sender, extracts the
 date and account number, renames the file consistently, and moves it to the
 right place in Dropbox. Scanned mail is filed instantly, with no manual work.
 
-Classification is rules-based — you define senders and routing rules in TOML
+Classification is rules-based: you define senders and routing rules in TOML
 config files. No LLM or external API required.
 
 ## Safety guarantee
@@ -52,7 +52,7 @@ The only runtime Python dependency is `pymupdf` (bundles its own libraries).
 
 ### OCR
 
-There is no OCR step. Extraction reads the PDF's embedded text layer only — a
+There is no OCR step. Extraction reads the PDF's embedded text layer only; a
 scan with no text layer is routed to `_Errored`. **Configure your scanner to
 produce searchable (OCR'd) PDFs** so documents arrive with a text layer.
 
@@ -99,7 +99,7 @@ exits silently. A run with nothing pending is a no-op.
 
 `pilezero inspect` is a read-only tool: it reads one or more PDFs, prints the
 metadata the pipeline would extract (sender matches, date, account, destination
-path), and — when the sender isn't recognized — suggests ready-to-paste
+path), and when the sender isn't recognized, suggests ready-to-paste
 `senders.toml` / `routing.toml` stubs. It never moves anything.
 
 ```bash
@@ -116,13 +116,13 @@ suggested `[[senders]]` / `[[rules]]` blocks into your config, fill in the
 
 A LaunchAgent triggers the pipeline on folder changes (`WatchPaths`) plus a
 periodic backstop (`StartInterval`). See [`launchd/README.md`](launchd/README.md)
-for install steps — you must replace the placeholder paths/username first.
+for install steps. You must replace the placeholder paths/username first.
 
 ## Observability
 
-- **`status.html`** — regenerated after every file; shows a last-6-months
+- **`status.html`**: regenerated after every file; shows a last-6-months
   summary and a color-coded table with `file://` links to triage PDFs. Bookmark it.
-- **`log.jsonl`** — append-only JSONL outcome log, stored locally (not synced via Dropbox).
+- **`log.jsonl`**: append-only JSONL outcome log, stored locally (not synced via Dropbox).
 
 ## Tests
 
